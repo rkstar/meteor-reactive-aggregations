@@ -5,38 +5,48 @@ import { Mongo } from 'meteor/mongo';
 const defaultOptions = ({ collection, options }) => ({
   observer: {
     query: {},
-    options: {},
+    options: {}
   },
   delay: 250,
   clientCollection: collection._name,
   ...options
 });
 
-Mongo.Collection.prototype.aggregate = function(subscription, pipeline = [], options = {}) {
-  const rootCollection = this.rawCollection();
-  const runAggregation = Meteor.wrapAsync(rootCollection.aggregate.bind(rootCollection));
-  const { observer, delay, clientCollection } = defaultOptions(options);
+function aggregateWithoutReactivity({ pipeline = [], options = {} }) {
+  const collection = this.rawCollection();
+  return Meteor.wrapAsync(collection.aggregate.bind(collection))(pipeline, options);
+}
+
+function aggregateReactively({ subscription, pipeline = [], options = {} }) {
+  const collection = this.rawCollection();
+  const runAggregation = Meteor.wrapAsync(collection.aggregate.bind(collection));
+  const { observer, delay, clientCollection } = defaultOptions({
+    collection: this,
+    options
+  });
 
   const throttledUpdate = _.throttle(Meteor.bindEnvironment(() => {
-    // add and update documents on the client
-    runAggregation(pipeline, observer.options).forEach((doc) => {
-      if (!subscription._ids[doc._id]) {
-        subscription.added(clientCollection, doc._id, doc);
-      } else {
-        subscription.changed(clientCollection, doc._id, doc);
-      }
-      subscription._ids[doc._id] = subscription._iteration;
-    });
-    // remove documents not in the result anymore
-    _.each(subscription._ids, (iteration, key) => {
-      if (iteration != subscription._iteration) {
-        delete subscription._ids[key];
-        subscription.removed(clientCollection, key);
-      }
-    });
-    subscription._iteration++;
-  }), delay);
-  const update = () => !initializing ? throttledUpdate(): null;
+      // add and update documents on the client
+      runAggregation(pipeline, observer.options).forEach((doc) => {
+        if (!subscription._ids[doc._id]) {
+          subscription.added(clientCollection, doc._id, doc);
+        } else {
+          subscription.changed(clientCollection, doc._id, doc);
+        }
+        subscription._ids[doc._id] = subscription._iteration;
+      });
+      // remove documents not in the result anymore
+      _.each(subscription._ids, (iteration, key) => {
+        if (iteration != subscription._iteration) {
+          delete subscription._ids[key];
+          subscription.removed(clientCollection, key);
+        }
+      });
+      subscription._iteration++;
+    }),
+    delay
+  );
+  const update = () => (!initializing ? throttledUpdate() : null);
 
   // don't update the subscription until __after__ the initial hydrating of our collection
   let initializing = true;
@@ -46,13 +56,13 @@ Mongo.Collection.prototype.aggregate = function(subscription, pipeline = [], opt
 
   // create a list of collections to watch and make sure
   // we create a sanitized "strings-only" version of our pipeline
-  const observerHandles = [createObserver(collection, observer)];
+  const observerHandles = [createObserver(this, observer)];
   // look for $lookup collections passed in as Mongo.Collection instances
   // and create observers for them
   // if any $lookup.from stages are passed in as strings they will be omitted
   // from this process. the aggregation will still work, but those collections
   // will not force an update to this query if changed.
-  const safePipeline = pipeline.map(stage => {
+  const safePipeline = pipeline.map((stage) => {
     if (stage.$lookup && stage.$lookup.from instanceof Mongo.Collection) {
       const { from: { collection }, observer } = stage.$lookup;
       observerHandles.push(createObserver(collection, observer));
@@ -75,20 +85,33 @@ Mongo.Collection.prototype.aggregate = function(subscription, pipeline = [], opt
   // mark the subscription as ready
   subscription.ready();
   // stop observing the cursor when the client unsubscribes
-  subscription.onStop(() => observerHandles.map(handle => handle.stop()));
+  subscription.onStop(() => observerHandles.map((handle) => handle.stop()));
 
   /**
 	 * Create observer
 	 * @param {Mongo.Collection|*} collection
 	 * @returns {any|*|Meteor.LiveQueryHandle} Handle
 	 */
-  function createObserver(collection, { query = {}, options = {} }) {
-    const cursor = collection.find(query, options);
+  function createObserver(collection, {
+    query, options
+  }) {
+    const cursor = collection.find(query || {}, options || {});
     return cursor.observeChanges({
       added: update,
       changed: update,
       removed: update,
-      error: (err) => { throw err },
+      error: (err) => {
+        throw err;
+      }
     });
   }
 }
+
+Mongo.Collection.prototype.aggregate = function (subscription, pipeline = [], options = {}) {
+  return Array.isArray(subscription)
+    ? aggregateWithoutReactivity.call(this, {
+      pipeline: subscription,
+      options: Array.isArray(pipeline) ? {} : pipeline
+    })
+    : aggregateReactively.call(this, { subscription, pipeline, options });
+};
