@@ -13,6 +13,5 @@ Package.describe({
 Package.onUse(function(api) {
   api.versionsFrom("1.5");
   api.use(['ecmascript', 'underscore', 'mongo']);
-
-  api.mainModule("./aggregate.js");
+  api.addFiles('./aggregate.js');
 });
