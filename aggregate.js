@@ -14,10 +14,27 @@ const defaultOptions = ({ collection, options }) => ({
 
 Mongo.Collection.prototype.aggregate = function(subscription, pipeline = [], options = {}) {
   const rootCollection = this.rawCollection();
+  const runAggregation = Meteor.wrapAsync(rootCollection.aggregate.bind(rootCollection));
   const { observer, delay, clientCollection } = defaultOptions(options);
 
   const throttledUpdate = _.throttle(Meteor.bindEnvironment(() => {
-
+    // add and update documents on the client
+    runAggregation(pipeline, observer.options).forEach((doc) => {
+      if (!subscription._ids[doc._id]) {
+        subscription.added(clientCollection, doc._id, doc);
+      } else {
+        subscription.changed(clientCollection, doc._id, doc);
+      }
+      subscription._ids[doc._id] = subscription._iteration;
+    });
+    // remove documents not in the result anymore
+    _.each(subscription._ids, (iteration, key) => {
+      if (iteration != subscription._iteration) {
+        delete subscription._ids[key];
+        subscription.removed(clientCollection, key);
+      }
+    });
+    subscription._iteration++;
   }), delay);
   const update = () => !initializing ? throttledUpdate(): null;
 
