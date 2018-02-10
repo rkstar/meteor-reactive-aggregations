@@ -24,6 +24,25 @@ Meteor.publish('books', function() {
 ```
 **NOTE:** the `Collection.aggregate` function **does not return a cursor** unlike `Collection.find()`. Do not `return Collection.aggregate(...)` from your `Meteor.publish()` callback.
 
+## THIS PACKAGE CANNOT CO-EXIST WITH meteorhacks:aggregate
+I'm aware of this, so I've added this **bonus usage**! You can simply pass in a `pipeline` and/or some `options` and you will bypass all of my hard work to make aggregations reactive. **BANG!**
+```
+const Books = new Mongo.Collection('books');
+const pipeline = [{
+    $match: { ...some stuff ... }
+}, {
+    $lookup: {
+        from: 'some.collection',
+        ... etc...
+    }
+}];
+const options = {
+    ...some options...
+} ;
+
+Books.aggregate(pipeline, options):
+```
+
 -----
 
 ## Collection.aggregate(subscription, pipeline, options);
