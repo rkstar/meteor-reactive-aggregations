@@ -8,30 +8,60 @@ const defaultOptions = ({ collection, options }) => ({
     options: {}
   },
   delay: 250,
+  beforeAdd: null,
+  beforeChange: null,
+  beforeRemove: null,
   clientCollection: collection._name,
   ...options
 });
 
 function aggregateWithoutReactivity({ pipeline = [], options = {} }) {
   const collection = this.rawCollection();
-  return Meteor.wrapAsync(collection.aggregate.bind(collection))(pipeline, options);
+  return Meteor.wrapAsync(collection.aggregate.bind(collection))(
+    pipeline,
+    options
+  );
 }
 
 function aggregateReactively({ subscription, pipeline = [], options = {} }) {
   const collection = this.rawCollection();
-  const runAggregation = Meteor.wrapAsync(collection.aggregate.bind(collection));
-  const { observer, delay, clientCollection } = defaultOptions({
+  const runAggregation = Meteor.wrapAsync(
+    collection.aggregate.bind(collection)
+  );
+  const {
+    observer,
+    delay,
+    beforeAdd,
+    beforeChange,
+    beforeRemove,
+    clientCollection
+  } = defaultOptions({
     collection: this,
     options
   });
 
-  const throttledUpdate = _.throttle(Meteor.bindEnvironment(() => {
+  const throttledUpdate = _.throttle(
+    Meteor.bindEnvironment(() => {
       // add and update documents on the client
-      runAggregation(pipeline, observer.options).forEach((doc) => {
+      runAggregation(pipeline, observer.options).forEach(doc => {
+        const _id = doc._id;
+        const copyDoc = { ...doc };
         if (!subscription._ids[doc._id]) {
-          subscription.added(clientCollection, doc._id, doc);
+          const handledDoc = _.isFunction(beforeAdd)
+            ? beforeAdd(copyDoc)
+            : copyDoc;
+          subscription.added(clientCollection, _id, {
+            ...handledDoc,
+            _id
+          });
         } else {
-          subscription.changed(clientCollection, doc._id, doc);
+          const handledDoc = _.isFunction(beforeChange)
+            ? beforeChange(copyDoc)
+            : copyDoc;
+          subscription.changed(clientCollection, _id, {
+            ...handledDoc,
+            _id
+          });
         }
         subscription._ids[doc._id] = subscription._iteration;
       });
@@ -39,6 +69,9 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
       _.each(subscription._ids, (iteration, key) => {
         if (iteration != subscription._iteration) {
           delete subscription._ids[key];
+          const handledDoc = _.isFunction(beforeRemove)
+            ? beforeRemove(copyDoc)
+            : copyDoc;
           subscription.removed(clientCollection, key);
         }
       });
@@ -62,9 +95,9 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
   // if any $lookup.from stages are passed in as strings they will be omitted
   // from this process. the aggregation will still work, but those collections
   // will not force an update to this query if changed.
-  const safePipeline = pipeline.map((stage) => {
+  const safePipeline = pipeline.map(stage => {
     if (stage.$lookup && stage.$lookup.from instanceof Mongo.Collection) {
-      const { from: { collection }, observer } = stage.$lookup;
+      const { from: collection, observer } = stage.$lookup;
       observerHandles.push(createObserver(collection, observer));
       return {
         ...stage,
@@ -85,33 +118,36 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
   // mark the subscription as ready
   subscription.ready();
   // stop observing the cursor when the client unsubscribes
-  subscription.onStop(() => observerHandles.map((handle) => handle.stop()));
+  subscription.onStop(() => observerHandles.map(handle => handle.stop()));
 
   /**
-	 * Create observer
-	 * @param {Mongo.Collection|*} collection
-	 * @returns {any|*|Meteor.LiveQueryHandle} Handle
-	 */
-  function createObserver(collection, {
-    query, options
-  }) {
+   * Create observer
+   * @param {Mongo.Collection|*} collection
+   * @returns {any|*|Meteor.LiveQueryHandle} Handle
+   */
+  function createObserver(collection, { query, options }) {
     const cursor = collection.find(query || {}, options || {});
     return cursor.observeChanges({
       added: update,
       changed: update,
       removed: update,
-      error: (err) => {
+      error: err => {
         throw err;
       }
     });
   }
 }
 
-Mongo.Collection.prototype.aggregate = function (subscription, pipeline = [], options = {}) {
+Mongo.Collection.prototype.aggregate = function(
+  subscription,
+  pipeline = [],
+  options = {}
+) {
   return Array.isArray(subscription)
     ? aggregateWithoutReactivity.call(this, {
-      pipeline: subscription,
-      options: Array.isArray(pipeline) ? {} : pipeline
-    })
+        pipeline: subscription,
+        options:
+          Array.isArray(pipeline) || !_.isObject(pipeline) ? {} : pipeline
+      })
     : aggregateReactively.call(this, { subscription, pipeline, options });
 };
