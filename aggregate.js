@@ -97,7 +97,7 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
   // will not force an update to this query if changed.
   const safePipeline = pipeline.map(stage => {
     if (stage.$lookup && stage.$lookup.from instanceof Mongo.Collection) {
-      const { from: collection, observer } = stage.$lookup;
+      const { from: collection, observer = {} } = stage.$lookup;
       observerHandles.push(createObserver(collection, observer));
       return {
         ...stage,
