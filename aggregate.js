@@ -25,9 +25,7 @@ function aggregateWithoutReactivity({ pipeline = [], options = {} }) {
 
 function aggregateReactively({ subscription, pipeline = [], options = {} }) {
   const collection = this.rawCollection();
-  const runAggregation = Meteor.wrapAsync(
-    collection.aggregate.bind(collection)
-  );
+  const runAggregation = Meteor.wrapAsync(collection.aggregate.bind(collection));
   const {
     observer,
     delay,
@@ -40,38 +38,34 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
     options
   });
 
+  console.log('client collection:', clientCollection);
+
   const throttledUpdate = _.throttle(
     Meteor.bindEnvironment(() => {
       // add and update documents on the client
-      runAggregation(pipeline, observer.options).forEach(doc => {
-        const _id = doc._id;
-        const copyDoc = { ...doc };
-        if (!subscription._ids[doc._id]) {
+      runAggregation(pipeline, observer.options).forEach((doc) => {
+        const { _id } = doc;
+        const copy = { ...doc };
+        if (!subscription._ids[_id]) {
           const handledDoc = _.isFunction(beforeAdd)
-            ? beforeAdd(copyDoc)
-            : copyDoc;
-          subscription.added(clientCollection, _id, {
-            ...handledDoc,
-            _id
-          });
+            ? { ...beforeAdd(copy), _id }
+            : copy;
+          subscription.added(clientCollection, _id, handledDoc);
         } else {
           const handledDoc = _.isFunction(beforeChange)
-            ? beforeChange(copyDoc)
-            : copyDoc;
-          subscription.changed(clientCollection, _id, {
-            ...handledDoc,
-            _id
-          });
+            ? { ...beforeChange(copy), _id }
+            : copy;
+          subscription.changed(clientCollection, _id, handledDoc);
         }
-        subscription._ids[doc._id] = subscription._iteration;
+        subscription._ids[_id] = subscription._iteration;
       });
       // remove documents not in the result anymore
       _.each(subscription._ids, (iteration, key) => {
         if (iteration != subscription._iteration) {
+          if (_.isFunction(beforeRemove)) {
+            beforeRemove(copy);
+          }
           delete subscription._ids[key];
-          const handledDoc = _.isFunction(beforeRemove)
-            ? beforeRemove(copyDoc)
-            : copyDoc;
           subscription.removed(clientCollection, key);
         }
       });
@@ -95,17 +89,12 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
   // if any $lookup.from stages are passed in as strings they will be omitted
   // from this process. the aggregation will still work, but those collections
   // will not force an update to this query if changed.
-  const safePipeline = pipeline.map(stage => {
+  const safePipeline = pipeline.map((stage) => {
     if (stage.$lookup && stage.$lookup.from instanceof Mongo.Collection) {
       const { from: collection, observer = {} } = stage.$lookup;
       observerHandles.push(createObserver(collection, observer));
-      return {
-        ...stage,
-        $lookup: {
-          ..._.omit(stage.$lookup, 'observer'),
-          from: collection._name
-        }
-      };
+      stage.$lookup.from = collection._name;
+      delete stage.$lookup.observer;
     }
     return stage;
   });
@@ -131,23 +120,23 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
       added: update,
       changed: update,
       removed: update,
-      error: err => {
+      error: (err) => {
         throw err;
       }
     });
   }
 }
 
-Mongo.Collection.prototype.aggregate = function(
-  subscription,
-  pipeline = [],
-  options = {}
+Mongo.Collection.prototype.aggregate = function (
+    subscription,
+    pipeline = [],
+    options = {}
 ) {
   return Array.isArray(subscription)
     ? aggregateWithoutReactivity.call(this, {
-        pipeline: subscription,
-        options:
+      pipeline: subscription,
+      options:
           Array.isArray(pipeline) || !_.isObject(pipeline) ? {} : pipeline
-      })
+    })
     : aggregateReactively.call(this, { subscription, pipeline, options });
 };
