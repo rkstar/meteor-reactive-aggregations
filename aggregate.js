@@ -38,8 +38,6 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
     options
   });
 
-  console.log('client collection:', clientCollection);
-
   const throttledUpdate = _.throttle(
     Meteor.bindEnvironment(() => {
       // add and update documents on the client
