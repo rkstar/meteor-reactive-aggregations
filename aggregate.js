@@ -40,8 +40,9 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
 
   const throttledUpdate = _.throttle(
     Meteor.bindEnvironment(() => {
+    Meteor.bindEnvironment(({ pipeline, options }) => {
       // add and update documents on the client
-      runAggregation(pipeline, observer.options).forEach((doc) => {
+      runAggregation(pipeline, options).forEach(doc => {
         const { _id } = doc;
         const copy = { ...doc };
         if (!subscription._ids[_id]) {
@@ -71,7 +72,10 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
     }),
     delay
   );
-  const update = () => (!initializing ? throttledUpdate() : null);
+  const update = () =>
+    !initializing
+      ? throttledUpdate({ pipeline: safePipeline, options: observer.options })
+      : null;
 
   // don't update the subscription until __after__ the initial hydrating of our collection
   let initializing = true;
