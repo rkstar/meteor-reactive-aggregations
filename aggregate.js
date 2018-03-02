@@ -32,7 +32,7 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
   const {
     observer,
     delay,
-    getPipeline,
+    getPipelineAndOptions,
     beforeAdd,
     beforeChange,
     beforeRemove,
