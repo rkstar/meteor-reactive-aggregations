@@ -54,9 +54,10 @@ Books.aggregate(pipeline, options):
 * `subscription` should always be `this` in a publication.
 * `pipeline` is the aggregation pipeline to execute.
 * `options` **[optional]** provides further options:
-  * 'observer' can be provided to improve efficiency. This is an object that should contain either or both of `query` and `options` which are regular MongoDB objects used on `.find` operations.
+  * `observer` can be provided to improve efficiency. This is an object that should contain either or both of `query` and `options` which are regular MongoDB objects used on `.find` operations.
   * `delay` (default: `250`) the time (in milliseconds) between re-runs caused by changes in any reactive collections in the aggregation.
   * `clientCollection` defaults to `collection._name` but can be overriden to sent the results to a different client-side collection.
+  * `getPipelineAndOptions` **[optional]** returns an object as `{ pipeline, options }` when the aggregation is run.
   * `beforeAdd` **[optional]** is passed the document that will be added to the `clientCollection` and expects a new document to be returned. the returned document will be added to `clientCollection` instead. **the `_id` field cannot be modified here.**
   * `beforeChange` **[optional]** is passed the document that will be changed in the `clientCollection` and expects a new document to be returned. the returned document will be changed in the `clientCollection` instead. **the `_id` field cannot be modified here.**
   * `beforeRemove` **[optional]** is passed the document that will be removed from the `clientCollection`. no return value is processed as the document is simply removed from the `clientCollection`.
