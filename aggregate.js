@@ -8,6 +8,7 @@ const defaultOptions = ({ collection, options }) => ({
     options: {}
   },
   delay: 250,
+  getPipelineAndOptions: null,
   beforeAdd: null,
   beforeChange: null,
   beforeRemove: null,
@@ -25,10 +26,13 @@ function aggregateWithoutReactivity({ pipeline = [], options = {} }) {
 
 function aggregateReactively({ subscription, pipeline = [], options = {} }) {
   const collection = this.rawCollection();
-  const runAggregation = Meteor.wrapAsync(collection.aggregate.bind(collection));
+  const runAggregation = Meteor.wrapAsync(
+    collection.aggregate.bind(collection)
+  );
   const {
     observer,
     delay,
+    getPipeline,
     beforeAdd,
     beforeChange,
     beforeRemove,
@@ -39,8 +43,10 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
   });
 
   const throttledUpdate = _.throttle(
-    Meteor.bindEnvironment(() => {
     Meteor.bindEnvironment(({ pipeline, options }) => {
+      if (_.isFunction(getPipelineAndOptions)) {
+        getPipelineAndOptions({ pipeline, options });
+      }
       // add and update documents on the client
       runAggregation(pipeline, options).forEach(doc => {
         const { _id } = doc;
@@ -91,7 +97,7 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
   // if any $lookup.from stages are passed in as strings they will be omitted
   // from this process. the aggregation will still work, but those collections
   // will not force an update to this query if changed.
-  const safePipeline = pipeline.map((stage) => {
+  const safePipeline = pipeline.map(stage => {
     if (stage.$lookup && stage.$lookup.from instanceof Mongo.Collection) {
       const { from: collection, observer = {} } = stage.$lookup;
       observerHandles.push(createObserver(collection, observer));
@@ -122,23 +128,23 @@ function aggregateReactively({ subscription, pipeline = [], options = {} }) {
       added: update,
       changed: update,
       removed: update,
-      error: (err) => {
+      error: err => {
         throw err;
       }
     });
   }
 }
 
-Mongo.Collection.prototype.aggregate = function (
-    subscription,
-    pipeline = [],
-    options = {}
+Mongo.Collection.prototype.aggregate = function(
+  subscription,
+  pipeline = [],
+  options = {}
 ) {
   return Array.isArray(subscription)
     ? aggregateWithoutReactivity.call(this, {
-      pipeline: subscription,
-      options:
+        pipeline: subscription,
+        options:
           Array.isArray(pipeline) || !_.isObject(pipeline) ? {} : pipeline
-    })
+      })
     : aggregateReactively.call(this, { subscription, pipeline, options });
 };
